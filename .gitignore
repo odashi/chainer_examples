@@ -1,5 +1,7 @@
+__pycache__
 data
 hyp
 model
 nohup.out
 test
+my_settings.py

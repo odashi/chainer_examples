@@ -1,5 +1,7 @@
 #!/usr/bin/python3
 
+import my_settings
+
 import datetime
 import sys
 import math
@@ -7,19 +9,8 @@ import numpy as np
 from argparse import ArgumentParser
 from collections import defaultdict
 
-'''
-sys.path.append('/project/nakamura-lab01/Work/yusuke-o/lib/python3.4/site-packages/appdirs-1.4.0-py3.4.egg')
-sys.path.append('/project/nakamura-lab01/Work/yusuke-o/lib/python3.4/site-packages/chainer-1.2.0-py3.4.egg')
-sys.path.append('/project/nakamura-lab01/Work/yusuke-o/lib/python3.4/site-packages/Mako-1.0.1-py3.4.egg')
-sys.path.append('/project/nakamura-lab01/Work/yusuke-o/lib/python3.4/site-packages/py-1.4.30-py3.4.egg')
-sys.path.append('/project/nakamura-lab01/Work/yusuke-o/lib/python3.4/site-packages/pycuda-2015.1.3-py3.4-linux-x86_64.egg')
-sys.path.append('/project/nakamura-lab01/Work/yusuke-o/lib/python3.4/site-packages/pytest-2.7.2-py3.4.egg')
-sys.path.append('/project/nakamura-lab01/Work/yusuke-o/lib/python3.4/site-packages/pytools-2015.1.3-py3.4.egg')
-sys.path.append('/project/nakamura-lab01/Work/yusuke-o/lib/python3.4/site-packages/scikit_cuda-0.5.0-py3.4.egg')
-'''
-
 from chainer import FunctionSet, Variable, functions, optimizers
-#from chainer import cuda
+from chainer import cuda
 
 
 def trace(*args):
