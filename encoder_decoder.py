@@ -88,7 +88,6 @@ class EncoderDecoderModel:
         return self
 
     def init_optimizer(self):
-        #return optimizers.SGD(lr=0.01)
         self.__opt = optimizers.AdaGrad(lr=0.01)
         self.__opt.setup(self.__model)
 
