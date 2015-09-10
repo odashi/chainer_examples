@@ -6,13 +6,11 @@ import sys
 import math
 import numpy as np
 from argparse import ArgumentParser
-from collections import defaultdict
 
-from chainer import FunctionSet, Variable, functions, optimizers
-from chainer import cuda
+from chainer import functions, optimizers
 
 import util.generators as gens
-from util.functions import trace, fill_batch, vtos
+from util.functions import trace, fill_batch
 from util.model_file import ModelFile
 from util.vocabulary import Vocabulary
 
@@ -84,17 +82,16 @@ class EncoderDecoderModel:
             fp.read_embed(self.__model.w_yq)
             fp.read_linear(self.__model.w_qq)
             wrapper.end_model_access(self.__model)
-
         return self
 
     def init_optimizer(self):
         self.__opt = optimizers.AdaGrad(lr=0.01)
         self.__opt.setup(self.__model)
 
-    def __predict(self, is_training, src_batch, trg_batch = None, generation_limit = None):
+    def __forward(self, is_training, src_batch, trg_batch = None, generation_limit = None):
         m = self.__model
-        tanh = functions.tanh
-        lstm = functions.lstm
+        tanh = lambda x: functions.tanh(x)
+        lstm = lambda c, x: functions.lstm(c, x)
         batch_size = len(src_batch)
         src_len = len(src_batch[0])
         src_stoi = self.__src_vocab.stoi
@@ -151,7 +148,7 @@ class EncoderDecoderModel:
 
     def train(self, src_batch, trg_batch):
         self.__opt.zero_grads()
-        hyp_batch, accum_loss = self.__predict(True, src_batch, trg_batch=trg_batch)
+        hyp_batch, accum_loss = self.__forward(True, src_batch, trg_batch=trg_batch)
         accum_loss.backward()
         self.__opt.clip_grads(10)
         self.__opt.update()
@@ -159,7 +156,7 @@ class EncoderDecoderModel:
         return hyp_batch
 
     def predict(self, src_batch, generation_limit):
-        return self.__predict(False, src_batch, generation_limit=generation_limit)
+        return self.__forward(False, src_batch, generation_limit=generation_limit)
 
 
 def parse_args():
