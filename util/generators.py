@@ -23,3 +23,8 @@ def word_list(filename):
         for l in fp:
             yield l.split()
 
+def letter_list(filename):
+    with open(filename) as fp:
+        for l in fp:
+            yield list(''.join(l.split()))
+

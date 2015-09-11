@@ -90,8 +90,8 @@ class EncoderDecoderModel:
 
     def __forward(self, is_training, src_batch, trg_batch = None, generation_limit = None):
         m = self.__model
-        tanh = lambda x: functions.tanh(x)
-        lstm = lambda c, x: functions.lstm(c, x)
+        tanh = functions.tanh
+        lstm = functions.lstm
         batch_size = len(src_batch)
         src_len = len(src_batch[0])
         src_stoi = self.__src_vocab.stoi
@@ -152,7 +152,6 @@ class EncoderDecoderModel:
         accum_loss.backward()
         self.__opt.clip_grads(10)
         self.__opt.update()
-
         return hyp_batch
 
     def predict(self, src_batch, generation_limit):
