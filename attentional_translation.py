@@ -204,7 +204,7 @@ class AttentionalTranslationModel:
                 for k in range(batch_size):
                     hyp_batch[k].append(trg_itos(s_y[k]))
 
-                print(hyp_batch[k][-1])
+                print(hyp_batch[0][-1])
                 
                 s_t = wrapper.make_var([trg_stoi(trg_batch[k][l]) for k in range(batch_size)], dtype=np.int32)
                 accum_loss += functions.softmax_cross_entropy(r_y, s_t)
