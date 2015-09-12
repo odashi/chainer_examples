@@ -8,9 +8,10 @@ import numpy as np
 from argparse import ArgumentParser
 
 from chainer import functions, optimizers
+import chainer.computational_graph as cg
 
 import util.generators as gens
-from util.functions import trace, fill_batch
+from util.functions import trace, fill_batch2
 from util.model_file import ModelFile
 from util.vocabulary import Vocabulary
 
@@ -18,27 +19,38 @@ from util.vocabulary import Vocabulary
 from util.chainer_gpu_wrapper import wrapper
 
    
-class EncoderDecoderModel:
+class AttentionalTranslationModel:
     def __init__(self):
         pass
 
     def __make_model(self):
         self.__model = wrapper.make_model(
-            # encoder
+            # input embedding
             w_xi = functions.EmbedID(len(self.__src_vocab), self.__n_embed),
-            w_ip = functions.Linear(self.__n_embed, 4 * self.__n_hidden),
-            w_pp = functions.Linear(self.__n_hidden, 4 * self.__n_hidden),
+            # forward encoder
+            w_ia = functions.Linear(self.__n_embed, 4 * self.__n_hidden),
+            w_aa = functions.Linear(self.__n_hidden, 4 * self.__n_hidden),
+            # backward encoder
+            w_ib = functions.Linear(self.__n_embed, 4 * self.__n_hidden),
+            w_bb = functions.Linear(self.__n_hidden, 4 * self.__n_hidden),
+            # attentional weight estimator
+            w_aw = functions.Linear(self.__n_hidden, self.__n_hidden),
+            w_bw = functions.Linear(self.__n_hidden, self.__n_hidden),
+            w_pw = functions.Linear(self.__n_hidden, self.__n_hidden),
+            w_we = functions.Linear(self.__n_hidden, 1),
             # decoder
-            w_pq = functions.Linear(self.__n_hidden, 4 * self.__n_hidden),
-            w_qj = functions.Linear(self.__n_hidden, self.__n_embed),
-            w_jy = functions.Linear(self.__n_embed, len(self.__trg_vocab)),
-            w_yq = functions.EmbedID(len(self.__trg_vocab), 4 * self.__n_hidden),
-            w_qq = functions.Linear(self.__n_hidden, 4 * self.__n_hidden),
+            w_ap = functions.Linear(self.__n_hidden, self.__n_hidden),
+            w_bp = functions.Linear(self.__n_hidden, self.__n_hidden),
+            w_yp = functions.EmbedID(len(self.__trg_vocab), 4 * self.__n_hidden),
+            w_pp = functions.Linear(self.__n_hidden, 4 * self.__n_hidden),
+            w_cp = functions.Linear(self.__n_hidden, 4 * self.__n_hidden),
+            w_dp = functions.Linear(self.__n_hidden, 4 * self.__n_hidden),
+            w_py = functions.Linear(self.__n_hidden, len(self.__trg_vocab)),
         )
 
     @staticmethod
     def new(src_vocab, trg_vocab, n_embed, n_hidden):
-        self = EncoderDecoderModel()
+        self = AttentionalTranslationModel()
         self.__src_vocab = src_vocab
         self.__trg_vocab = trg_vocab
         self.__n_embed = n_embed
@@ -54,18 +66,26 @@ class EncoderDecoderModel:
             fp.write(self.__n_hidden)
             wrapper.begin_model_access(self.__model)
             fp.write_embed(self.__model.w_xi)
-            fp.write_linear(self.__model.w_ip)
+            fp.write_linear(self.__model.w_ia)
+            fp.write_linear(self.__model.w_aa)
+            fp.write_linear(self.__model.w_ib)
+            fp.write_linear(self.__model.w_bb)
+            fp.write_linear(self.__model.w_aw)
+            fp.write_linear(self.__model.w_bw)
+            fp.write_linear(self.__model.w_pw)
+            fp.write_linear(self.__model.w_we)
+            fp.write_linear(self.__model.w_ap)
+            fp.write_linear(self.__model.w_bp)
+            fp.write_embed(self.__model.w_yp)
             fp.write_linear(self.__model.w_pp)
-            fp.write_linear(self.__model.w_pq)
-            fp.write_linear(self.__model.w_qj)
-            fp.write_linear(self.__model.w_jy)
-            fp.write_embed(self.__model.w_yq)
-            fp.write_linear(self.__model.w_qq)
+            fp.write_linear(self.__model.w_cp)
+            fp.write_linear(self.__model.w_dp)
+            fp.write_linear(self.__model.w_py)
             wrapper.end_model_access(self.__model)
 
     @staticmethod
     def load(filename):
-        self = EncoderDecoderModel()
+        self = AttentionalTranslationModel()
         with ModelFile(filename) as fp:
             self.__src_vocab = Vocabulary.load(fp.get_file_pointer())
             self.__trg_vocab = Vocabulary.load(fp.get_file_pointer())
@@ -74,13 +94,21 @@ class EncoderDecoderModel:
             self.__make_model()
             wrapper.begin_model_access(self.__model)
             fp.read_embed(self.__model.w_xi)
-            fp.read_linear(self.__model.w_ip)
+            fp.read_linear(self.__model.w_ia)
+            fp.read_linear(self.__model.w_aa)
+            fp.read_linear(self.__model.w_ib)
+            fp.read_linear(self.__model.w_bb)
+            fp.read_linear(self.__model.w_aw)
+            fp.read_linear(self.__model.w_bw)
+            fp.read_linear(self.__model.w_pw)
+            fp.read_linear(self.__model.w_we)
+            fp.read_linear(self.__model.w_ap)
+            fp.read_linear(self.__model.w_bp)
+            fp.read_embed(self.__model.w_yp)
             fp.read_linear(self.__model.w_pp)
-            fp.read_linear(self.__model.w_pq)
-            fp.read_linear(self.__model.w_qj)
-            fp.read_linear(self.__model.w_jy)
-            fp.read_embed(self.__model.w_yq)
-            fp.read_linear(self.__model.w_qq)
+            fp.read_linear(self.__model.w_cp)
+            fp.read_linear(self.__model.w_dp)
+            fp.read_linear(self.__model.w_py)
             wrapper.end_model_access(self.__model)
         return self
 
@@ -97,58 +125,100 @@ class EncoderDecoderModel:
         src_stoi = self.__src_vocab.stoi
         trg_stoi = self.__trg_vocab.stoi
         trg_itos = self.__trg_vocab.itos
-        s_c = wrapper.zeros((batch_size, self.__n_hidden))
-        
-        # encoding
-        s_x = wrapper.make_var([src_stoi('</s>') for _ in range(batch_size)], dtype=np.int32)
-        s_i = tanh(m.w_xi(s_x))
-        s_c, s_p = lstm(s_c, m.w_ip(s_i))
 
-        for l in reversed(range(src_len)):
+        hidden_zeros = wrapper.zeros((batch_size, self.__n_hidden))
+
+        # make embedding
+        list_x = []
+        for l in range(src_len):
             s_x = wrapper.make_var([src_stoi(src_batch[k][l]) for k in range(batch_size)], dtype=np.int32)
-            s_i = tanh(m.w_xi(s_x))
-            s_c, s_p = lstm(s_c, m.w_ip(s_i) + m.w_pp(s_p))
+            list_x.append(s_x)
 
-        s_c, s_q = lstm(s_c, m.w_pq(s_p))
-        hyp_batch = [[] for _ in range(batch_size)]
+        # forward encoding
+        c = hidden_zeros
+        s_a = hidden_zeros
+        list_a = []
+        for l in range(src_len):
+            s_x = list_x[l]
+            s_i = tanh(m.w_xi(s_x))
+            c, s_a = lstm(c, m.w_ia(s_i) + m.w_aa(s_a))
+            list_a.append(s_a)
         
+        # backward encoding
+        c = hidden_zeros
+        s_b = hidden_zeros
+        list_b = []
+        for l in reversed(range(src_len)):
+            s_x = list_x[l]
+            s_i = tanh(m.w_xi(s_x))
+            c, s_b = lstm(c, m.w_ib(s_i) + m.w_bb(s_b))
+            list_b.insert(0, s_b)
+
         # decoding
+        c = hidden_zeros
+        s_p = tanh(m.w_ap(list_a[-1]) + m.w_bp(list_b[0]))
+
+        hyp_batch = [['<s>'] for _ in range(batch_size)]
+        s_t = wrapper.make_var([trg_stoi('<s>') for k in range(batch_size)], dtype=np.int32)
+
         if is_training:
             accum_loss = wrapper.zeros(())
-            trg_len = len(trg_batch[0])
+            sum_e_zeros = wrapper.zeros((batch_size, 1))
             
-            for l in range(trg_len):
-                s_j = tanh(m.w_qj(s_q))
-                r_y = m.w_jy(s_j)
+            for n in range(src_len):
+                print(src_batch[0][n], end=' ')
+            print()
+
+            for l in range(1, len(trg_batch[0])):
+                # calculate attentional weights
+                list_e = []
+                sum_e = sum_e_zeros
+                for n in range(src_len):
+                    s_w = tanh(m.w_aw(list_a[n]) + m.w_bw(list_b[n]) + m.w_pw(s_p))
+                    r_e = functions.exp(m.w_we(s_w))
+                    list_e.append(functions.concat(r_e for _ in range(self.__n_hidden)))
+                    sum_e += r_e
+                sum_e = functions.concat(sum_e for _ in range(self.__n_hidden))
+
+                # make attention vector
+                s_c = hidden_zeros
+                s_d = hidden_zeros
+                for n in range(src_len):
+                    s_e = list_e[n] / sum_e
+
+                    zxcv = wrapper.get_data(s_e)[0][0]
+                    if zxcv > 0.9: asdf='#'
+                    elif zxcv > 0.7: asdf='*'
+                    elif zxcv > 0.3: asdf='+'
+                    elif zxcv > 0.1: asdf='.'
+                    else: asdf=' '
+                    print(asdf * len(src_batch[0][n]), end=' ')
+
+                    s_c += s_e * list_a[n]
+                    s_d += s_e * list_b[n]
+
+                # generate next word
+                c, s_p = lstm(c, m.w_yp(s_t) + m.w_pp(s_p) + m.w_cp(s_c) + m.w_dp(s_d))
+                r_y = m.w_py(s_p)
+                s_y = wrapper.get_data(r_y).argmax(1)
+                for k in range(batch_size):
+                    hyp_batch[k].append(trg_itos(s_y[k]))
+
+                print(hyp_batch[k][-1])
+                
                 s_t = wrapper.make_var([trg_stoi(trg_batch[k][l]) for k in range(batch_size)], dtype=np.int32)
                 accum_loss += functions.softmax_cross_entropy(r_y, s_t)
-                output = wrapper.get_data(r_y).argmax(1)
-
-                for k in range(batch_size):
-                    hyp_batch[k].append(trg_itos(output[k]))
-
-                s_c, s_q = lstm(s_c, m.w_yq(s_t) + m.w_qq(s_q))
 
             return hyp_batch, accum_loss
         else:
-            while len(hyp_batch[0]) < generation_limit:
-                s_j = tanh(m.w_qj(s_q))
-                r_y = m.w_jy(s_j)
-                output = wrapper.get_data(r_y).argmax(1)
-
-                for k in range(batch_size):
-                    hyp_batch[k].append(trg_itos(output[k]))
-
-                if all(hyp_batch[k][-1] == '</s>' for k in range(batch_size)): break
-
-                s_y = wrapper.make_var(output, dtype=np.int32)
-                s_c, s_q = lstm(s_c, m.w_yq(s_y) + m.w_qq(s_q))
-            
-            return hyp_batch
+            raise NotImplementedError()
 
     def train(self, src_batch, trg_batch):
         self.__opt.zero_grads()
         hyp_batch, accum_loss = self.__forward(True, src_batch, trg_batch=trg_batch)
+        #g = cg.build_computational_graph([accum_loss])
+        #with open('asdf', 'w') as fp: fp.write(g.dump())
+        #sys.exit()
         accum_loss.backward()
         self.__opt.clip_grads(10)
         self.__opt.update()
@@ -166,7 +236,7 @@ def parse_args():
     def_minibatch = 64
     def_generation_limit = 256
 
-    p = ArgumentParser(description='Encoder-decoder neural machine trainslation')
+    p = ArgumentParser(description='Attentional neural machine translation')
 
     p.add_argument('mode', help='\'train\' or \'test\'')
     p.add_argument('source', help='[in] source corpus')
@@ -210,19 +280,19 @@ def train_model(args):
     trg_vocab = Vocabulary.new(gens.word_list(args.target), args.vocab)
 
     trace('making model ...')
-    model = EncoderDecoderModel.new(src_vocab, trg_vocab, args.embed, args.hidden)
+    model = AttentionalTranslationModel.new(src_vocab, trg_vocab, args.embed, args.hidden)
 
     for epoch in range(args.epoch):
         trace('epoch %d/%d: ' % (epoch + 1, args.epoch))
         trained = 0
         gen1 = gens.word_list(args.source)
         gen2 = gens.word_list(args.target)
-        gen3 = gens.batch(gens.sorted_parallel(gen1, gen2, 100 * args.minibatch), args.minibatch)
+        gen3 = gens.batch(gens.sorted_parallel(gen1, gen2, 100 * args.minibatch, order=0), args.minibatch)
         model.init_optimizer()
 
         for src_batch, trg_batch in gen3:
-            src_batch = fill_batch(src_batch)
-            trg_batch = fill_batch(trg_batch)
+            src_batch = fill_batch2(src_batch)
+            trg_batch = fill_batch2(trg_batch)
             K = len(src_batch)
             hyp_batch = model.train(src_batch, trg_batch)
 
@@ -242,14 +312,14 @@ def train_model(args):
 
 def test_model(args):
     trace('loading model ...')
-    model = EncoderDecoderModel.load(args.model)
+    model = AttentionalTranslationModel.load(args.model)
     
     trace('generating translation ...')
     generated = 0
 
     with open(args.target, 'w') as fp:
         for src_batch in gens.batch(gens.word_list(args.source), args.minibatch):
-            src_batch = fill_batch(src_batch)
+            src_batch = fill_batch2(src_batch)
             K = len(src_batch)
 
             trace('sample %8d - %8d ...' % (generated + 1, generated + K))
