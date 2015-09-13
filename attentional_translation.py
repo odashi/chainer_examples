@@ -122,11 +122,13 @@ class AttentionalTranslationModel:
         lstm = functions.lstm
         batch_size = len(src_batch)
         src_len = len(src_batch[0])
+        trg_len = len(trg_batch[0]) - 1 if is_training else generation_limit
         src_stoi = self.__src_vocab.stoi
         trg_stoi = self.__trg_vocab.stoi
         trg_itos = self.__trg_vocab.itos
 
         hidden_zeros = wrapper.zeros((batch_size, self.__n_hidden))
+        sum_e_zeros = wrapper.zeros((batch_size, 1))
 
         # make embedding
         list_x = []
@@ -157,61 +159,60 @@ class AttentionalTranslationModel:
         # decoding
         c = hidden_zeros
         s_p = tanh(m.w_ap(list_a[-1]) + m.w_bp(list_b[0]))
+        s_y = wrapper.make_var([trg_stoi('<s>') for k in range(batch_size)], dtype=np.int32)
 
-        hyp_batch = [['<s>'] for _ in range(batch_size)]
-        s_t = wrapper.make_var([trg_stoi('<s>') for k in range(batch_size)], dtype=np.int32)
+        hyp_batch = [[] for _ in range(batch_size)]
+        accum_loss = wrapper.zeros(()) if is_training else None
+        
+        #for n in range(src_len):
+        #    print(src_batch[0][n], end=' ')
+        #print()
 
-        if is_training:
-            accum_loss = wrapper.zeros(())
-            sum_e_zeros = wrapper.zeros((batch_size, 1))
-            
+        for l in range(trg_len):
+            # calculate attention weights
+            list_e = []
+            sum_e = sum_e_zeros
             for n in range(src_len):
-                print(src_batch[0][n], end=' ')
-            print()
+                s_w = tanh(m.w_aw(list_a[n]) + m.w_bw(list_b[n]) + m.w_pw(s_p))
+                r_e = functions.exp(m.w_we(s_w))
+                list_e.append(functions.concat(r_e for _ in range(self.__n_hidden)))
+                sum_e += r_e
+            sum_e = functions.concat(sum_e for _ in range(self.__n_hidden))
 
-            for l in range(1, len(trg_batch[0])):
-                # calculate attentional weights
-                list_e = []
-                sum_e = sum_e_zeros
-                for n in range(src_len):
-                    s_w = tanh(m.w_aw(list_a[n]) + m.w_bw(list_b[n]) + m.w_pw(s_p))
-                    r_e = functions.exp(m.w_we(s_w))
-                    list_e.append(functions.concat(r_e for _ in range(self.__n_hidden)))
-                    sum_e += r_e
-                sum_e = functions.concat(sum_e for _ in range(self.__n_hidden))
+            # make attention vector
+            s_c = hidden_zeros
+            s_d = hidden_zeros
+            for n in range(src_len):
+                s_e = list_e[n] / sum_e
+                s_c += s_e * list_a[n]
+                s_d += s_e * list_b[n]
 
-                # make attention vector
-                s_c = hidden_zeros
-                s_d = hidden_zeros
-                for n in range(src_len):
-                    s_e = list_e[n] / sum_e
+                #zxcv = wrapper.get_data(s_e)[0][0]
+                #if zxcv > 0.9: asdf='#'
+                #elif zxcv > 0.7: asdf='*'
+                #elif zxcv > 0.3: asdf='+'
+                #elif zxcv > 0.1: asdf='.'
+                #else: asdf=' '
+                #print(asdf * len(src_batch[0][n]), end=' ')
 
-                    zxcv = wrapper.get_data(s_e)[0][0]
-                    if zxcv > 0.9: asdf='#'
-                    elif zxcv > 0.7: asdf='*'
-                    elif zxcv > 0.3: asdf='+'
-                    elif zxcv > 0.1: asdf='.'
-                    else: asdf=' '
-                    print(asdf * len(src_batch[0][n]), end=' ')
+            # generate next word
+            c, s_p = lstm(c, m.w_yp(s_y) + m.w_pp(s_p) + m.w_cp(s_c) + m.w_dp(s_d))
+            r_y = m.w_py(s_p)
+            output = wrapper.get_data(r_y).argmax(1)
+            for k in range(batch_size):
+                hyp_batch[k].append(trg_itos(output[k]))
 
-                    s_c += s_e * list_a[n]
-                    s_d += s_e * list_b[n]
-
-                # generate next word
-                c, s_p = lstm(c, m.w_yp(s_t) + m.w_pp(s_p) + m.w_cp(s_c) + m.w_dp(s_d))
-                r_y = m.w_py(s_p)
-                s_y = wrapper.get_data(r_y).argmax(1)
-                for k in range(batch_size):
-                    hyp_batch[k].append(trg_itos(s_y[k]))
-
-                print(hyp_batch[0][-1])
-                
-                s_t = wrapper.make_var([trg_stoi(trg_batch[k][l]) for k in range(batch_size)], dtype=np.int32)
+            #print(hyp_batch[0][-1])
+            
+            if is_training:
+                s_t = wrapper.make_var([trg_stoi(trg_batch[k][l + 1]) for k in range(batch_size)], dtype=np.int32)
                 accum_loss += functions.softmax_cross_entropy(r_y, s_t)
+                s_y = s_t
+            else:
+                if all(hyp_batch[k][-1] == '</s>' for k in range(batch_size)): break
+                s_y = wrapper.make_var(output, dtype=np.int32)
 
-            return hyp_batch, accum_loss
-        else:
-            raise NotImplementedError()
+        return hyp_batch, accum_loss
 
     def train(self, src_batch, trg_batch):
         self.__opt.zero_grads()
@@ -225,7 +226,7 @@ class AttentionalTranslationModel:
         return hyp_batch
 
     def predict(self, src_batch, generation_limit):
-        return self.__forward(False, src_batch, generation_limit=generation_limit)
+        return self.__forward(False, src_batch, generation_limit=generation_limit)[0]
 
 
 def parse_args():
