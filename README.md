@@ -9,10 +9,13 @@ using **Chainer** framework.
 
 Contents
 --------
-* encoder-decoder.py - Machine translation using encoder-decoder style recurrent neural network
-* attentional-translation.py - Machine translation using attentional neural network
-* word-segmentation.py - Word segmentation (a.k.a. tokenization) using feedforward neural network
-* rnnlm.py - Language model using recurrent neural network
+* `encoder-decoder.py` - Machine translation using encoder-decoder style recurrent neural network
+* `attentional-translation.py` - Machine translation using attentional neural network
+* `word-segmentation.py` - Word segmentation (a.k.a. tokenization) using feedforward neural network
+* `rnnlm.py` - Language model using recurrent neural network
+
+Note that this repos does not include `my_settings.py`
+which is used only for specifying machine-dependent import paths.
 
 Contact
 -------
