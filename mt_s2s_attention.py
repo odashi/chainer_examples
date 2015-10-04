@@ -121,13 +121,14 @@ class AttentionalTranslationModel:
         tanh = functions.tanh
         lstm = functions.lstm
         batch_size = len(src_batch)
+        hidden_size = self.__n_hidden
         src_len = len(src_batch[0])
         trg_len = len(trg_batch[0]) - 1 if is_training else generation_limit
         src_stoi = self.__src_vocab.stoi
         trg_stoi = self.__trg_vocab.stoi
         trg_itos = self.__trg_vocab.itos
 
-        hidden_zeros = wrapper.zeros((batch_size, self.__n_hidden))
+        hidden_zeros = wrapper.zeros((batch_size, hidden_size))
         sum_e_zeros = wrapper.zeros((batch_size, 1))
 
         # make embedding
@@ -175,17 +176,20 @@ class AttentionalTranslationModel:
             for n in range(src_len):
                 s_w = tanh(m.w_aw(list_a[n]) + m.w_bw(list_b[n]) + m.w_pw(s_p))
                 r_e = functions.exp(m.w_we(s_w))
-                list_e.append(functions.concat(r_e for _ in range(self.__n_hidden)))
+                #list_e.append(functions.concat(r_e for _ in range(self.__n_hidden)))
+                list_e.append(r_e)
                 sum_e += r_e
-            sum_e = functions.concat(sum_e for _ in range(self.__n_hidden))
+            #sum_e = functions.concat(sum_e for _ in range(self.__n_hidden))
 
             # make attention vector
             s_c = hidden_zeros
             s_d = hidden_zeros
             for n in range(src_len):
                 s_e = list_e[n] / sum_e
-                s_c += s_e * list_a[n]
-                s_d += s_e * list_b[n]
+                #s_c += s_e * list_a[n]
+                #s_d += s_e * list_b[n]
+                s_c += functions.reshape(functions.batch_matmul(list_a[n], s_e), (batch_size, hidden_size))
+                s_d += functions.reshape(functions.batch_matmul(list_b[n], s_e), (batch_size, hidden_size))
 
                 #zxcv = wrapper.get_data(s_e)[0][0]
                 #if zxcv > 0.9: asdf='#'
