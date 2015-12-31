@@ -128,10 +128,10 @@ class EncoderDecoder(Chain):
       hidden_size = int(next(fp))
       return EncoderDecoder(vocab_size, embed_size, hidden_size)
 
-def train(src_batch, trg_batch, src_vocab, trg_vocab, encdec):
+def forward(src_batch, trg_batch, src_vocab, trg_vocab, encdec, is_training, generation_limit):
   batch_size = len(src_batch)
   src_len = len(src_batch[0])
-  trg_len = len(trg_batch[0])
+  trg_len = len(trg_batch[0]) if trg_batch else 0
   src_stoi = src_vocab.stoi
   trg_stoi = trg_vocab.stoi
   trg_itos = trg_vocab.itos
@@ -139,55 +139,37 @@ def train(src_batch, trg_batch, src_vocab, trg_vocab, encdec):
 
   x = my_array([src_stoi('</s>') for _ in range(batch_size)], np.int32)
   encdec.encode(x)
-
   for l in reversed(range(src_len)):
     x = my_array([src_stoi(src_batch[k][l]) for k in range(batch_size)], np.int32)
     encdec.encode(x)
-
-  t = my_array([trg_stoi('<s>') for _ in range(batch_size)], np.int32)
-  loss = my_zeros((), np.float32)
-  hyp_batch = [[] for _ in range(batch_size)]
   
-  for l in range(trg_len):
-    y = encdec.decode(t)
-    t = my_array([trg_stoi(trg_batch[k][l]) for k in range(batch_size)], np.int32)
-    loss += functions.softmax_cross_entropy(y, t)
-    output = cuda.to_cpu(y.data.argmax(1))
-    for k in range(batch_size):
-      hyp_batch[k].append(trg_itos(output[k]))
-
-  return hyp_batch, loss
-
-def predict(src_batch, src_vocab, trg_vocab, encdec, generation_limit):
-  batch_size = len(src_batch)
-  src_len = len(src_batch[0])
-  src_stoi = src_vocab.stoi
-  trg_stoi = trg_vocab.stoi
-  trg_itos = trg_vocab.itos
-  encdec.reset(batch_size)
-
-  x = my_array([src_stoi('</s>') for _ in range(batch_size)], np.int32)
-  encdec.encode(x)
-
-  for l in reversed(range(src_len)):
-    x = my_array([src_stoi(src_batch[k][l]) for k in range(batch_size)], np.int32)
-    encdec.encode(x)
-
-  y = my_array([trg_stoi('<s>') for _ in range(batch_size)], np.int32)
+  t = my_array([trg_stoi('<s>') for _ in range(batch_size)], np.int32)
   hyp_batch = [[] for _ in range(batch_size)]
 
-  while len(hyp_batch[0]) < generation_limit:
-    y = encdec.decode(y)
-    output = cuda.to_cpu(y.data.argmax(1))
-    y = my_array(output, np.int32)
-    for k in range(batch_size):
-      hyp_batch[k].append(trg_itos(output[k]))
-    if all(hyp_batch[k][-1] == '</s>' for k in range(batch_size)):
-      break
+  if is_training:
+    loss = my_zeros((), np.float32)
+    for l in range(trg_len):
+      y = encdec.decode(t)
+      t = my_array([trg_stoi(trg_batch[k][l]) for k in range(batch_size)], np.int32)
+      loss += functions.softmax_cross_entropy(y, t)
+      output = cuda.to_cpu(y.data.argmax(1))
+      for k in range(batch_size):
+        hyp_batch[k].append(trg_itos(output[k]))
+    return hyp_batch, loss
+  
+  else:
+    while len(hyp_batch[0]) < generation_limit:
+      y = encdec.decode(t)
+      output = cuda.to_cpu(y.data.argmax(1))
+      t = my_array(output, np.int32)
+      for k in range(batch_size):
+        hyp_batch[k].append(trg_itos(output[k]))
+      if all(hyp_batch[k][-1] == '</s>' for k in range(batch_size)):
+        break
 
-  return hyp_batch
+    return hyp_batch
 
-def train_model(args):
+def train(args):
   trace('making vocaburaries ...')
   src_vocab = Vocabulary.new(gens.word_list(args.source), args.vocab)
   trg_vocab = Vocabulary.new(gens.word_list(args.target), args.vocab)
@@ -211,7 +193,7 @@ def train_model(args):
       src_batch = fill_batch(src_batch)
       trg_batch = fill_batch(trg_batch)
       K = len(src_batch)
-      hyp_batch, loss = train(src_batch, trg_batch, src_vocab, trg_vocab, encdec)
+      hyp_batch, loss = forward(src_batch, trg_batch, src_vocab, trg_vocab, encdec, True, 0)
       loss.backward()
       opt.update()
 
@@ -232,7 +214,7 @@ def train_model(args):
 
   trace('finished.')
 
-def test_model(args):
+def test(args):
   trace('loading model ...')
   src_vocab = Vocabulary.load(args.model + '.srcvocab')
   trg_vocab = Vocabulary.load(args.model + '.trgvocab')
@@ -250,7 +232,7 @@ def test_model(args):
       K = len(src_batch)
 
       trace('sample %8d - %8d ...' % (generated + 1, generated + K))
-      hyp_batch = predict(src_batch, src_vocab, trg_vocab, encdec, args.generation_limit)
+      hyp_batch = forward(src_batch, None, src_vocab, trg_vocab, encdec, False, args.generation_limit)
 
       for hyp in hyp_batch:
         hyp.append('</s>')
@@ -263,8 +245,8 @@ def test_model(args):
 
 def main():
   args = parse_args()
-  if args.mode == 'train': train_model(args)
-  elif args.mode == 'test': test_model(args)
+  if args.mode == 'train': train(args)
+  elif args.mode == 'test': test(args)
 
 if __name__ == '__main__':
   main()
