@@ -11,13 +11,12 @@ Making Local Client
 -------------------
 
 Before running these scripts, making a local python client using `pyenv` is
-reccomented, like:
+reccomended, like:
 
     $ pyenv install 3.5.0
     $ pyenv virtualenv 3.5.0 example
     $ pyenv shell example
     $ pip install chainer
-    $ pip install chainer-cuda-deps
 
 Contents
 --------
