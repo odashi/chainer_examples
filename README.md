@@ -7,6 +7,18 @@ using **Chainer** framework.
 
 [Chainer Official](http://chainer.org/ "Chainer official") ([GitHub](https://github.com/pfnet/chainer "Github"))
 
+Making Local Client
+-------------------
+
+Before running these scripts, making a local python client using `pyenv` is
+reccomented, like:
+
+    $ pyenv install 3.5.0
+    $ pyenv virtualenv 3.5.0 example
+    $ pyenv shell example
+    $ pip install chainer
+    $ pip install chainer-cuda-deps
+
 Contents
 --------
 
@@ -20,9 +32,6 @@ Contents
 
 * **Language Model**
     * `lm_rnn.py` - Using recurrent neural network (RNNLM)
-
-Note that this repos does not include `my_settings.py`
-which is used only for specifying machine-dependent import paths.
 
 Contact
 -------
