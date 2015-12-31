@@ -1,8 +1,6 @@
 Chainer example code for NLP
 ============================
 
-*These samples are based on Chainer 1.4 or earlier.*
-
 This repository contains some neural network examples
 for natural language processing (NLP)
 using **Chainer** framework.
