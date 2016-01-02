@@ -102,12 +102,13 @@ class Attention(Chain):
       e = functions.exp(self.we(w))
       e_list.append(e)
       sum_e += e
-    aa = my_zeros((batch_size, self.hidden_size), np.float32)
-    bb = my_zeros((batch_size, self.hidden_size), np.float32)
+    ZEROS = my_zeros((batch_size, self.hidden_size), np.float32)
+    aa = ZEROS
+    bb = ZEROS
     for a, b, e in zip(a_list, b_list, e_list):
       e /= sum_e
       aa += functions.reshape(functions.batch_matmul(a, e), (batch_size, self.hidden_size))
-      bb += functions.reshape(functions.batch_matmul(a, e), (batch_size, self.hidden_size))
+      bb += functions.reshape(functions.batch_matmul(b, e), (batch_size, self.hidden_size))
     return aa, bb
 
 class Decoder(Chain):
@@ -197,11 +198,13 @@ def forward(src_batch, trg_batch, src_vocab, trg_vocab, attmt, is_training, gene
   trg_itos = trg_vocab.itos
   attmt.reset(batch_size)
 
-  x = my_array([src_stoi('</s>') for _ in range(batch_size)], np.int32)
+  x = my_array([src_stoi('<s>') for _ in range(batch_size)], np.int32)
   attmt.embed(x)
-  for l in reversed(range(src_len)):
+  for l in range(src_len):
     x = my_array([src_stoi(src_batch[k][l]) for k in range(batch_size)], np.int32)
     attmt.embed(x)
+  x = my_array([src_stoi('</s>') for _ in range(batch_size)], np.int32)
+  attmt.embed(x)
 
   attmt.encode()
   
