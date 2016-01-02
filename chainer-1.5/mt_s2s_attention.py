@@ -235,7 +235,7 @@ def forward(src_batch, trg_batch, src_vocab, trg_vocab, attmt, is_training, gene
     return hyp_batch
 
 def train(args):
-  trace('making vocaburaries ...')
+  trace('making vocabularies ...')
   src_vocab = Vocabulary.new(gens.word_list(args.source), args.vocab)
   trg_vocab = Vocabulary.new(gens.word_list(args.target), args.vocab)
 

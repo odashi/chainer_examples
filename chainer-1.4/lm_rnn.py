@@ -164,7 +164,7 @@ def parse_args():
 def main():
     args = parse_args()
 
-    trace('making vocaburary ...')
+    trace('making vocabulary ...')
     vocab, num_lines, num_words = make_vocab(args.corpus, args.vocab)
 
     trace('initializing CUDA ...')

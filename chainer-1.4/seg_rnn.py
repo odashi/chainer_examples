@@ -200,7 +200,7 @@ def make_hyp(letters, scores):
 
 
 def train_model(args):
-    trace('making vocaburaries ...')
+    trace('making vocabularies ...')
     vocab = Vocabulary.new(gens.letter_list(args.corpus), args.vocab)
 
     trace('start training ...')
