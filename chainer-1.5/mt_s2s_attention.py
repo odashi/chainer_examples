@@ -1,5 +1,5 @@
 # Switch to toggle CPU/GPU operation
-USE_GPU = False
+USE_GPU = True
 
 import sys
 from argparse import ArgumentParser
@@ -21,7 +21,7 @@ def parse_args():
   def_minibatch = 64
   def_generation_limit = 128
 
-  p = ArgumentParser(description='Encoder-decoder neural machine trainslation')
+  p = ArgumentParser(description='Attentional neural machine trainslation')
 
   p.add_argument('mode', help='\'train\' or \'test\'')
   p.add_argument('source', help='[in] source corpus')
@@ -70,18 +70,18 @@ class SrcEmbed(Chain):
         xe = links.EmbedID(vocab_size, embed_size),
     )
 
-    def __call__(self, x):
-      return functions.tanh(self.xe(x))
+  def __call__(self, x):
+    return functions.tanh(self.xe(x))
 
 class Encoder(Chain):
   def __init__(self, embed_size, hidden_size):
     super(Encoder, self).__init__(
-        eh = links.Linear(embed_size, 4 * hidden_size),
+        xh = links.Linear(embed_size, 4 * hidden_size),
         hh = links.Linear(hidden_size, 4 * hidden_size),
     )
 
   def __call__(self, x, c, h):
-    return functions.lstm(c, self.eh(e) + self.hh(h))
+    return functions.lstm(c, self.xh(x) + self.hh(h))
 
 class Attention(Chain):
   def __init__(self, hidden_size):
@@ -94,9 +94,9 @@ class Attention(Chain):
     self.hidden_size = hidden_size
 
   def __call__(self, a_list, b_list, p):
-    batch_size = len(p)
+    batch_size = p.data.shape[0]
     e_list = []
-    sum_e = my_zeros((batch_size, 1))
+    sum_e = my_zeros((batch_size, 1), np.float32)
     for a, b in zip(a_list, b_list):
       w = functions.tanh(self.aw(a) + self.bw(b) + self.pw(p))
       e = functions.exp(self.we(w))
@@ -106,8 +106,8 @@ class Attention(Chain):
     bb = my_zeros((batch_size, self.hidden_size), np.float32)
     for a, b, e in zip(a_list, b_list, e_list):
       e /= sum_e
-      aa += functions.reshape(functions.batch_matmul(a, e), (batch_size, hidden_size))
-      bb += functions.reshape(functions.batch_matmul(a, e), (batch_size, hidden_size))
+      aa += functions.reshape(functions.batch_matmul(a, e), (batch_size, self.hidden_size))
+      bb += functions.reshape(functions.batch_matmul(a, e), (batch_size, self.hidden_size))
     return aa, bb
 
 class Decoder(Chain):
@@ -130,7 +130,7 @@ class Decoder(Chain):
 
 class AttentionMT(Chain):
   def __init__(self, vocab_size, embed_size, hidden_size):
-    super(EncoderDecoder, self).__init__(
+    super(AttentionMT, self).__init__(
         emb = SrcEmbed(vocab_size, embed_size),
         fenc = Encoder(embed_size, hidden_size),
         benc = Encoder(embed_size, hidden_size),
@@ -150,6 +150,7 @@ class AttentionMT(Chain):
 
   def encode(self):
     src_len = len(self.x_list)
+    batch_size = self.x_list[0].data.shape[0]
     ZEROS = my_zeros((batch_size, self.hidden_size), np.float32)
     c = ZEROS
     a = ZEROS
@@ -194,7 +195,7 @@ def forward(src_batch, trg_batch, src_vocab, trg_vocab, attmt, is_training, gene
   src_stoi = src_vocab.stoi
   trg_stoi = trg_vocab.stoi
   trg_itos = trg_vocab.itos
-  encdec.reset(batch_size)
+  attmt.reset(batch_size)
 
   x = my_array([src_stoi('</s>') for _ in range(batch_size)], np.int32)
   attmt.embed(x)
@@ -279,7 +280,7 @@ def test(args):
   trace('loading model ...')
   src_vocab = Vocabulary.load(args.model + '.srcvocab')
   trg_vocab = Vocabulary.load(args.model + '.trgvocab')
-  attmt = EncoderDecoder.load_spec(args.model + '.spec')
+  attmt = AttentionMT.load_spec(args.model + '.spec')
   if USE_GPU:
     attmt.to_gpu()
   serializers.load_hdf5(args.model + '.weights', attmt)
