@@ -280,7 +280,7 @@ def parse_args():
 
 
 def train_model(args):
-    trace('making vocaburaries ...')
+    trace('making vocabularies ...')
     src_vocab = Vocabulary.new(gens.word_list(args.source), args.vocab)
     trg_vocab = Vocabulary.new(gens.word_list(args.target), args.vocab)
 
