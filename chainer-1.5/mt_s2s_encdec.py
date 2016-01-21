@@ -1,19 +1,13 @@
-# Switch to toggle CPU/GPU operation
-USE_GPU = True
-
 import sys
+import numpy
 from argparse import ArgumentParser
 from chainer import Chain, Variable, cuda, functions, links, optimizer, optimizers, serializers
 import util.generators as gens
 from util.functions import trace, fill_batch
 from util.vocabulary import Vocabulary
 
-if USE_GPU:
-  import cupy as np
-else:
-  import numpy as np
-
 def parse_args():
+  def_gpu_device = 0
   def_vocab = 1000
   def_embed = 100
   def_hidden = 200
@@ -21,24 +15,34 @@ def parse_args():
   def_minibatch = 64
   def_generation_limit = 128
 
-  p = ArgumentParser(description='Encoder-decoder neural machine trainslation')
+  p = ArgumentParser(
+    description='Encoder-decoder neural machine trainslation',
+    usage=
+      '\n  %(prog)s train [options] source model'
+      '\n  %(prog)s test source model'
+      '\n  %(prog)s -h',
+  )
 
   p.add_argument('mode', help='\'train\' or \'test\'')
   p.add_argument('source', help='[in] source corpus')
   p.add_argument('target', help='[in/out] target corpus')
   p.add_argument('model', help='[in/out] model file')
+  p.add_argument('--use-gpu', action='store_true', default=False,
+    help='use GPU calculation')
+  p.add_argument('--gpu-device', default=def_gpu_device, metavar='INT', type=int,
+    help='GPU device ID to be used (default: %(default)d)')
   p.add_argument('--vocab', default=def_vocab, metavar='INT', type=int,
-    help='vocabulary size (default: %d)' % def_vocab)
+    help='vocabulary size (default: %(default)d)')
   p.add_argument('--embed', default=def_embed, metavar='INT', type=int,
-    help='embedding layer size (default: %d)' % def_embed)
+    help='embedding layer size (default: %(default)d)')
   p.add_argument('--hidden', default=def_hidden, metavar='INT', type=int,
-    help='hidden layer size (default: %d)' % def_hidden)
+    help='hidden layer size (default: %(default)d)')
   p.add_argument('--epoch', default=def_epoch, metavar='INT', type=int,
-    help='number of training epoch (default: %d)' % def_epoch)
+    help='number of training epoch (default: %(default)d)')
   p.add_argument('--minibatch', default=def_minibatch, metavar='INT', type=int,
-    help='minibatch size (default: %d)' % def_minibatch)
+    help='minibatch size (default: %(default)d)')
   p.add_argument('--generation-limit', default=def_generation_limit, metavar='INT', type=int,
-    help='maximum number of words to be generated for test input')
+    help='maximum number of words to be generated for test input (default: %(default)d)')
 
   args = p.parse_args()
 
@@ -58,11 +62,36 @@ def parse_args():
 
   return args
 
-def my_zeros(shape, dtype):
-  return Variable(np.zeros(shape, dtype=dtype))
+class XP:
+  __lib = None
 
-def my_array(array, dtype):
-  return Variable(np.array(array, dtype=dtype))
+  @staticmethod
+  def set_library(args):
+    if args.use_gpu:
+      XP.__lib = cuda.cupy
+      cuda.get_device(args.gpu_device).use()
+    else:
+      XP.__lib = numpy
+
+  @staticmethod
+  def __zeros(shape, dtype):
+    return Variable(XP.__lib.zeros(shape, dtype=dtype))
+
+  @staticmethod
+  def fzeros(shape):
+    return XP.__zeros(shape, XP.__lib.float32)
+
+  @staticmethod
+  def __array(array, dtype):
+    return Variable(XP.__lib.array(array, dtype=dtype))
+
+  @staticmethod
+  def iarray(array):
+    return XP.__array(array, XP.__lib.int32)
+
+  @staticmethod
+  def farray(array):
+    return XP.__array(array, XP.__lib.float32)
 
 class Encoder(Chain):
   def __init__(self, vocab_size, embed_size, hidden_size):
@@ -104,8 +133,8 @@ class EncoderDecoder(Chain):
 
   def reset(self, batch_size):
     self.zerograds()
-    self.c = my_zeros((batch_size, self.hidden_size), np.float32)
-    self.h = my_zeros((batch_size, self.hidden_size), np.float32)
+    self.c = XP.fzeros((batch_size, self.hidden_size))
+    self.h = XP.fzeros((batch_size, self.hidden_size))
 
   def encode(self, x):
     self.c, self.h = self.enc(x, self.c, self.h)
@@ -137,20 +166,20 @@ def forward(src_batch, trg_batch, src_vocab, trg_vocab, encdec, is_training, gen
   trg_itos = trg_vocab.itos
   encdec.reset(batch_size)
 
-  x = my_array([src_stoi('</s>') for _ in range(batch_size)], np.int32)
+  x = XP.iarray([src_stoi('</s>') for _ in range(batch_size)])
   encdec.encode(x)
   for l in reversed(range(src_len)):
-    x = my_array([src_stoi(src_batch[k][l]) for k in range(batch_size)], np.int32)
+    x = XP.iarray([src_stoi(src_batch[k][l]) for k in range(batch_size)])
     encdec.encode(x)
   
-  t = my_array([trg_stoi('<s>') for _ in range(batch_size)], np.int32)
+  t = XP.iarray([trg_stoi('<s>') for _ in range(batch_size)])
   hyp_batch = [[] for _ in range(batch_size)]
 
   if is_training:
-    loss = my_zeros((), np.float32)
+    loss = XP.fzeros(())
     for l in range(trg_len):
       y = encdec.decode(t)
-      t = my_array([trg_stoi(trg_batch[k][l]) for k in range(batch_size)], np.int32)
+      t = XP.iarray([trg_stoi(trg_batch[k][l]) for k in range(batch_size)])
       loss += functions.softmax_cross_entropy(y, t)
       output = cuda.to_cpu(y.data.argmax(1))
       for k in range(batch_size):
@@ -161,7 +190,7 @@ def forward(src_batch, trg_batch, src_vocab, trg_vocab, encdec, is_training, gen
     while len(hyp_batch[0]) < generation_limit:
       y = encdec.decode(t)
       output = cuda.to_cpu(y.data.argmax(1))
-      t = my_array(output, np.int32)
+      t = XP.iarray(output)
       for k in range(batch_size):
         hyp_batch[k].append(trg_itos(output[k]))
       if all(hyp_batch[k][-1] == '</s>' for k in range(batch_size)):
@@ -176,7 +205,7 @@ def train(args):
 
   trace('making model ...')
   encdec = EncoderDecoder(args.vocab, args.embed, args.hidden)
-  if USE_GPU:
+  if args.use_gpu:
     encdec.to_gpu()
 
   for epoch in range(args.epoch):
@@ -219,7 +248,7 @@ def test(args):
   src_vocab = Vocabulary.load(args.model + '.srcvocab')
   trg_vocab = Vocabulary.load(args.model + '.trgvocab')
   encdec = EncoderDecoder.load_spec(args.model + '.spec')
-  if USE_GPU:
+  if args.use_gpu:
     encdec.to_gpu()
   serializers.load_hdf5(args.model + '.weights', encdec)
   
@@ -245,6 +274,7 @@ def test(args):
 
 def main():
   args = parse_args()
+  XP.set_library(args)
   if args.mode == 'train': train(args)
   elif args.mode == 'test': test(args)
 
