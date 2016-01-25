@@ -18,8 +18,8 @@ def parse_args():
   p = ArgumentParser(
     description='Encoder-decoder neural machine trainslation',
     usage=
-      '\n  %(prog)s train [options] source model'
-      '\n  %(prog)s test source model'
+      '\n  %(prog)s train [options] source target model'
+      '\n  %(prog)s test source target model'
       '\n  %(prog)s -h',
   )
 
