@@ -23,6 +23,7 @@ def parse_args():
       '\n  %(prog)s -h',
   )
 
+
   p.add_argument('mode', help='\'train\' or \'test\'')
   p.add_argument('source', help='[in] source corpus')
   p.add_argument('target', help='[in/out] target corpus')
@@ -102,6 +103,272 @@ class SrcEmbed(Chain):
   def __call__(self, x):
     return functions.tanh(self.xe(x))
 
+
+
+
+class MultiLayerStatefulLSTMEncoder(ChainList):
+  """
+  This is an implementation of a Multilayered Stateful LSTM.
+  The underlying idea is to simply stack multiple LSTMs where the LSTM at the bottom takes the regular input,
+  and the LSTMs after that simply take the outputs (represented by h) of the previous LSMTs as inputs.
+  This is simply an analogous version of the Multilayered Stateless LSTM Encoder where the LSTM states are kept hidden.
+  This LSTM is to be called only by passing the input (x).
+  To access the cell states you must call the "get_states" function with parameter "num_layers" indicating the number of layers.
+  Although the cell outputs for each layer are returned, typically only the one of the topmost layer is used for various purposes like attention.
+  Note that in Tensorflow the concept of "number of attention heads" is used which probably points to attention using the output of each layer.
+
+  Args: 
+        embed_size - The size of embeddings of the inputs
+        hidden_size - The size of the hidden layer representation of the RNN
+        num_layers - The number of layers of the RNN (Indicates the number of RNNS stacked on top of each other)
+
+  Attributes: 
+        num_layers: Indicates the number of layers in the RNN
+  User Defined Methods:
+        get_states: This simply returns the latest cell states (c) as an array for all layers.
+
+  """
+
+  def __init__(self, embed_size, hidden_size, num_layers):
+    super(MultiLayerStatefulLSTMEncoder, self).__init__()
+    self.add_link(links.LSTM(embed_size,hidden_size))
+    for i in range(1:num_layers):
+      self.add_link(links.LSTM(hidden_size, hidden_size))
+    self.num_layers = num_layers
+      
+  def __call__(self, x):
+    """
+    Updates the internal state and returns the RNN outputs for each layer as a list.
+
+    Args:
+        x : A new batch from the input sequence.
+
+    Returns:
+        A list of the outputs (h) of updated RNN units over all the layers.
+
+    """
+    h_list = []
+    h_curr = self[0](x)
+    h_list.append(h_curr)
+    for i in range(1,self.num_layers):
+      h_curr = self[1](h_curr)
+      h_list.append(h_curr)
+    return h_list
+
+  def get_states():
+    c_list = []
+    for i in range(self.num_layers):
+      c_list.append(self[i].c)
+    return c_list
+
+class MultiLayerStatelessLSTMEncoder(ChainList):
+  """
+  This is an implementation of a Multilayered Stateless LSTM.
+  The underlying idea is to simply stack multiple LSTMs where the LSTM at the bottom takes the regular input,
+  and the LSTMs after that simply take the outputs (represented by h) of the previous LSMTs as inputs.
+  This is simply an analogous version of the Multilayered Stateful LSTM Encoder where the LSTM states are not hidden.
+  You have to pass the previous cell states (c) and outputs (h) along with the input (x) when calling the LSTM.
+  Although the cell outputs for each layer are returned, typically only the one of the topmost layer is used for various purposes like attention.
+  Note that in Tensorflow the concept of "number of attention heads" is used which probably points to attention using the output of each layer.
+
+  Args: 
+        embed_size - The size of embeddings of the inputs
+        hidden_size - The size of the hidden layer representation of the RNN
+        num_layers - The number of layers of the RNN (Indicates the number of RNNS stacked on top of each other)
+
+  Attributes: 
+        num_layers: Indicates the number of layers in the RNN
+  User Defined Methods:
+        
+  """
+  def __init__(self, embed_size, hidden_size, num_layers):
+    super(MultiLayerStatelessLSTMEncoder, self).__init__()
+
+    self.add_link(links.Linear(embed_size, 4 * hidden_size))
+    self.add_link(links.Linear(hidden_size, 4 * hidden_size))
+    for i in range(1:num_layers):
+      self.add_link(links.Linear(hidden_size, 4 * hidden_size))
+      self.add_link(links.Linear(hidden_size, 4 * hidden_size))
+    self.num_layers = num_layers
+  def __call__(self, x, c, h):
+    """
+    Updates the internal state and returns the RNN outputs for each layer as a list.
+
+    Args:
+        x : A new batch from the input sequence.
+        c : The list of the previous cell states.
+        h : The list of the previous cell outputs.
+    Returns:
+        A list of the outputs (h) and another of the states (c) of the updated RNN units over all the layers.
+
+    """
+    c_list = []
+    h_list = []
+    c_curr, h_curr = functions.lstm(c[0], self[0](x) + self[1](h[0]))
+    c_list.append(c_curr)
+    h_list.append(h_curr)
+    for i in range(1,self.num_layers):
+      c_curr, h_curr = functions.lstm(c[i], self[(i*num_layers)+0](h_curr) + self[(i*num_layers)+1](h[i]))
+      c_list.append(c_curr)
+      h_list.append(h_curr)
+    return c_list, h_list
+
+class MultiLayerGRUEncoder(ChainList):
+  """
+  This is an implementation of a Multilayered Stateless GRU.
+  The underlying idea is to simply stack multiple GRUs where the GRU at the bottom takes the regular input,
+  and the GRUs after that simply take the outputs (represented by h) of the previous GRUs as inputs.
+  You have to pass the previous cell outputs (h) along with the input (x) when calling the LSTM.
+  The implementation for the Stateful GRU just saves the cell state and thus its multilayered version wont be implemented unless demanded.
+
+  Args: 
+        embed_size - The size of embeddings of the inputs
+        hidden_size - The size of the hidden layer representation of the RNN
+        num_layers - The number of layers of the RNN (Indicates the number of RNNS stacked on top of each other)
+
+  Attributes: 
+        num_layers: Indicates the number of layers in the RNN
+  User Defined Methods:
+        
+  """
+
+  def __init__(self, embed_size, hidden_size, num_layers):
+    super(MultiLayerGRUEncoder, self).__init__()
+    self.add_link(links.GRU(hidden_size,embed_size))
+    for i in num_layers:
+      self.add_link(links.GRU(hidden_size,hidden_size))
+    self.num_layers = num_layers
+
+  def __call__(self, x, h):
+    """
+    Updates the internal state and returns the RNN outputs for each layer as a list.
+
+    Args:
+        x : A new batch from the input sequence.
+        h : The list of the previous cell outputs.
+    Returns:
+        A list of the outputs (h) of the updated RNN units over all the layers.
+
+    """
+    h_list = []
+    h_curr = self[0](h[0], x)
+    h_list.append(h_curr)
+    for i in range(1,self.num_layers):
+      h_curr = self[i](h[i], h_curr)
+      h_list.append(h_curr)
+    return h_list
+
+
+class GRUEncoder(Chain):
+  
+  """
+  This is just the same Encoder as below.
+  The only difference is that the RNN cell is a GRU.
+  
+
+  Args: 
+        embed_size - The size of embeddings of the inputs
+        hidden_size - The size of the hidden layer representation of the RNN
+        
+
+  Attributes: 
+        
+  User Defined Methods:
+  
+  """
+
+  def __init__(self, embed_size, hidden_size):
+    super(Encoder, self).__init__(
+        GRU = links.GRU(embed_size, hidden_size),
+    )
+
+  def __call__(self, x):
+    """
+    Updates the internal state and returns the RNN output (h).
+    Note that for a GRU the internal state is the same as the output. (c and h are the same)
+
+    Args:
+        x : A new batch from the input sequence.
+
+    Returns:
+        The output (h) of updated RNN unit.
+
+    """
+    return self.GRU(x)
+
+class StatefulEncoder(Chain):
+  
+  """
+  This is just the same Encoder as below.
+  The only difference is that the LSTM class implementation is used instead of the LSTM function.
+  Instead of explicitly defining the LSTM components, the LSTM class encapsulates these components making the Encoder look simpler.
+
+  Args: 
+        embed_size - The size of embeddings of the inputs
+        hidden_size - The size of the hidden layer representation of the RNN
+        
+
+  Attributes: 
+        
+  User Defined Methods:
+        get_state: This simply returns the latest cell state (c).
+  """
+
+  def __init__(self, embed_size, hidden_size):
+    super(Encoder, self).__init__(
+        LSTM = links.LSTM(embed_size, hidden_size),
+    )
+
+  def __call__(self, x):
+    """
+    Updates the internal state and returns the RNN output (h).
+
+    Args:
+        x : A new batch from the input sequence.
+
+    Returns:
+        The output (h) of updated RNN unit.
+
+    """
+    return self.LSTM(x)
+
+  def get_state():
+    return self.LSTM.c
+
+class StateLessEncoder(Chain):
+  """
+  This is just the same Encoder as below. The name is changed for the sake of disambiguation.
+  The LSTM components are explicitly defined and the LSTM function is used in place of the LSTM class.
+
+  Args: 
+        embed_size - The size of embeddings of the inputs
+        hidden_size - The size of the hidden layer representation of the RNN
+        
+
+  Attributes: 
+        
+  User Defined Methods:
+  """
+  def __init__(self, embed_size, hidden_size):
+    super(Encoder, self).__init__(
+        xh = links.Linear(embed_size, 4 * hidden_size),
+        hh = links.Linear(hidden_size, 4 * hidden_size),
+    )
+
+  def __call__(self, x, c, h):
+    """
+    Updates the internal state and returns the RNN outputs for each layer as a list.
+
+    Args:
+        x : A new batch from the input sequence.
+        c : The previous cell state.
+        h : The previous cell output.
+    Returns:
+        The output (h) and the state (c) of the updated RNN unit.
+
+    """
+    return functions.lstm(c, self.xh(x) + self.hh(h))
+    
 class Encoder(Chain):
   def __init__(self, embed_size, hidden_size):
     super(Encoder, self).__init__(
