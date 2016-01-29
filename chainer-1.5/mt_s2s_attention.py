@@ -83,6 +83,14 @@ class XP:
     return XP.__zeros(shape, XP.__lib.float32)
 
   @staticmethod
+  def __nonzeros(shape, dtype, val):
+    return Variable(val * XP.__lib.ones(shape, dtype=dtype))
+
+  @staticmethod
+  def fnonzeros(shape, val=1):
+    return XP.__nonzeros(shape, XP.__lib.float32, val)
+
+  @staticmethod
   def __array(array, dtype):
     return Variable(XP.__lib.array(array, dtype=dtype))
 
@@ -406,6 +414,49 @@ class Attention(Chain):
       aa += functions.reshape(functions.batch_matmul(a, e), (batch_size, self.hidden_size))
       bb += functions.reshape(functions.batch_matmul(b, e), (batch_size, self.hidden_size))
     return aa, bb
+
+class LocalAttention(Chain):
+  def __init__(self, hidden_size):
+    super(Attention, self).__init__(
+        aw = links.Linear(hidden_size, hidden_size),
+        bw = links.Linear(hidden_size, hidden_size),
+        pw = links.Linear(hidden_size, hidden_size),
+        we = links.Linear(hidden_size, 1),
+        ts = links.Linear(hidden_size, hidden_size),
+        sp = links.Linear(hidden_size, 1),
+    )
+    self.hidden_size = hidden_size
+
+  def __call__(self, a_list, b_list, p, sentence_length, window_size):
+    batch_size = p.data.shape[0]
+    SENTENCE_LENGTH = XP.fnonzeros((batch_size, 1),sentence_length)
+    e_list = []
+    sum_e = XP.fzeros((batch_size, 1))
+    s = functions.tanh(self.ts(p))
+    pos =  SENTENCE_LENGTH * functions.sigmoid(self.sp(s))
+
+    # Develop batch logic to set to zero the components of a and b which are out of the window
+    # Big question: Do I have to iterate over each element in the batch? That would suck.
+    # One logic: Get global alignment matrix of (batch x) hidden size x sentence length and then another matrix of (batch x) sentence length which
+    # will essentially be a matrix containing the gaussian distrubution weight and there will be zeros where the sentence position falls out of the window
+    # Another logic: Create a matrix of (batch x) sentence length where there will be 1 for each position in the window
+
+    # Separate the attention weights for a and b cause forward is different from backward.
+
+    for a, b in zip(a_list, b_list):
+      w = functions.tanh(self.aw(a) + self.bw(b) + self.pw(p))
+      e = functions.exp(self.we(w))
+      e_list.append(e)
+      sum_e += e
+    ZEROS = XP.fzeros((batch_size, self.hidden_size))
+    aa = ZEROS
+    bb = ZEROS
+    for a, b, e in zip(a_list, b_list, e_list):
+      e /= sum_e
+      aa += a * e
+      bb += b * e
+    return aa, bb
+
 
 class Decoder(Chain):
   def __init__(self, vocab_size, embed_size, hidden_size):
