@@ -96,7 +96,7 @@ def parse_args():
         if (args.minibatch < 1): raise ValueError('you must set --minibatch >= 1')
     except Exception as ex:
         p.print_usage(file=sys.stderr)
-        print(ex, file=sys.stderr)
+        print(ex)
         sys.exit()
 
     return args
