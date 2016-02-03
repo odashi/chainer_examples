@@ -152,12 +152,12 @@ class SrcEmbed(Chain):
 
 class BasicRnnLM(Chain):
     def __init__(self, embed_size, hidden_size, vocab_size):
-    super(BasicRnn, self).__init__(
-        xe = SrcEmbed(vocab_size, embed_size),
-        eh = links.Linear(embed_size, hidden_size),
-        hh = links.Linear(hidden_size, hidden_size),
-        hy = links.Linear(hidden_size, vocab_size),
-    )
+        super(BasicRnn, self).__init__(
+            xe = SrcEmbed(vocab_size, embed_size),
+            eh = links.Linear(embed_size, hidden_size),
+            hh = links.Linear(hidden_size, hidden_size),
+            hy = links.Linear(hidden_size, vocab_size),
+        )
     self.reset_state()
 
     def reset_state():
