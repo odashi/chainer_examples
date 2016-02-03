@@ -7,7 +7,7 @@ from util.functions import trace, fill_batch
 from util.vocabulary import Vocabulary
 
 
-
+#Added comment
 
 def make_vocab(filename, vocab_size):
     word_freq = defaultdict(lambda: 0)
