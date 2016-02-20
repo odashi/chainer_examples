@@ -140,7 +140,7 @@ class MultiLayerStatefulLSTMEncoder(ChainList):
   def __init__(self, embed_size, hidden_size, num_layers):
     super(MultiLayerStatefulLSTMEncoder, self).__init__()
     self.add_link(links.LSTM(embed_size,hidden_size))
-    for i in range(1:num_layers):
+    for i in range(1, num_layers):
       self.add_link(links.LSTM(hidden_size, hidden_size))
     self.num_layers = num_layers
       
@@ -194,7 +194,7 @@ class MultiLayerStatelessLSTMEncoder(ChainList):
 
     self.add_link(links.Linear(embed_size, 4 * hidden_size))
     self.add_link(links.Linear(hidden_size, 4 * hidden_size))
-    for i in range(1:num_layers):
+    for i in range(1,num_layers):
       self.add_link(links.Linear(hidden_size, 4 * hidden_size))
       self.add_link(links.Linear(hidden_size, 4 * hidden_size))
     self.num_layers = num_layers
