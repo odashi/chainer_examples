@@ -1,7 +1,7 @@
 import sys
 import numpy
 from argparse import ArgumentParser
-from chainer import Chain, Variable, cuda, functions, links, optimizer, optimizers, serializers
+from chainer import Chain, ChainList, Variable, cuda, functions, links, optimizer, optimizers, serializers
 import util.generators as gens
 from util.functions import trace, fill_batch
 from util.vocabulary import Vocabulary
