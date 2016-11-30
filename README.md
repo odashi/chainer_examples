@@ -1,6 +1,10 @@
 Chainer example code for NLP
 ============================
 
+**This repository is out of date and rough. I do not guarantee that these code works correctly.**
+
+**I am developing a new NMT toolkit [NMTKit](https://github.com/odashi/nmtkit) and strongly recommend to use it instead of these samples to train neural translation models.**
+
 This repository contains some neural network examples
 for natural language processing (NLP)
 using **Chainer** framework.
